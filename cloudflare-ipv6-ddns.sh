@@ -35,9 +35,9 @@ create_log_file() {
 get_current_ip() {
   local ip_command=""
   if [ "$TYPE" == "A" ]; then
-    ip_command="curl -s -4 https://ip.ddnspod.com/v4"
+    ip_command="curl -s -4 https://ip.ddnspod.com -A 'DDnsPod-cf-202312'"
   elif [ "$TYPE" == "AAAA" ]; then
-    ip_command="curl -s -6 https://ip.ddnspod.com/v6"
+    ip_command="curl -s -6 https://ip.ddnspod.com -A 'DDnsPod-cf-202312'"
   else
     echo "指定的ip类型无效. 请使用 'A' 或者 'AAAA'."
     exit 1
