@@ -107,6 +107,8 @@ main() {
 
   #检查当前IP地址是否与之前的相同
   if [ "$IP" == "$PREVIOUS_IP" ] && [ "$DOMAIN" == "$PREVIOUS_DOMAIN" ]; then
+    echo "[URL IP]:$IP"
+    echo "[DNS IP]:$PREVIOUS_IP"
     echo "当前IP与域名解析地址相同, 跳过修改操作."
   else
     create_log_file
