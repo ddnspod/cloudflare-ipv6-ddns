@@ -1,1 +1,151 @@
-#!/bin/bashSCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"#½øÈëhttps://dash.cloudflare.com/profile/api-tokens»ñÈ¡#£¨ÌîµÄÊÇAPI Token£¬ÖĞÎÄ½ĞAPIÁîÅÆ£¬±ğÌîÏÂÃæµÄGlobal API Key£¬ĞèÒªÊÚÓètoken DNSĞŞ¸ÄÈ¨ÏŞ¡¢ZONEºÍZone Settings ¶ÁÈ¨ÏŞ£©TOKEN="_DCkzF7UoHW0ERx3610ztqEhK7WvJ7H1c_8XXHwy"#µÇÂ¼cloudflareµÄÓÊÏäEMAIL="google@gmail.com"#ÇøÓòID£¨½øÈëcloudflare£¬µã»÷¶ÔÓ¦ÓòÃû£¬ÔÙµã»÷¸ÅÊöÓÒÏÂ²à»ñÈ¡£©ZONE_ID="be92f3a28586eb731ac7cd1568fb1609"#Òª½âÎöµÄÓòÃû£¨www.google.com or google.com£©DOMAIN="www.google.com"TYPE="AAAA"  # ipÀàĞÍ(A/AAAA)CDN_PROXIED=false  # ÊÇ·ñ¿ªÆôĞ¡»ÆÔÆcdn¼ÓËÙ £¨false|¹Ø±Õ true|¿ªÆô£©LOG_DIR="$SCRIPT_DIR/$DOMAIN"  # ÈÕÖ¾ÎÄ¼ş´æ·ÅÄ¿Â¼NOW_IP_FILE="$SCRIPT_DIR/$DOMAIN/$DOMAIN.json"  # ÓòÃû½âÎöÊı¾İ´æ·ÅÄ¿Â¼DAYS_TO_KEEP=7  # ÈÕÖ¾±£´æÌìÊı# ´´½¨ÈÕÖ¾Ä¿Â¼create_log_directory() {  if [ ! -d "$LOG_DIR" ]; then    mkdir "$LOG_DIR"  fi}# ´´½¨ÈÕÖ¾ÎÄ¼şcreate_log_file() {  local current_date=$(date +"%Y-%m-%d")  LOG_FILE="$LOG_DIR/${DOMAIN}_${current_date}.log"  touch "$LOG_FILE"}# »ñÈ¡µ±Ç°IPµØÖ·get_current_ip() {  local ip_command=""  if [ "$TYPE" == "A" ]; then    ip_command="curl -s -4 https://ip.ddnspod.com/v4"  elif [ "$TYPE" == "AAAA" ]; then    ip_command="curl -s -6 https://ip.ddnspod.com/v6"  else    echo "Ö¸¶¨µÄipÀàĞÍÎŞĞ§. ÇëÊ¹ÓÃ 'A' »òÕß 'AAAA'."    exit 1  fi  $ip_command}# »ñÈ¡ÓòÃûidget_domain_id() {  local response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \    -H "X-Auth-Email:$EMAIL" \    -H "Authorization: Bearer $TOKEN" \    -H "Content-Type: application/json")  local domain_id=$(echo "$response" | jq -r ".result[] | select(.name == \"$DOMAIN\" and .type == \"$TYPE\") | .id")  echo "$domain_id"}# ´ÓJSONÎÄ¼şÖĞ¶ÁÈ¡Ö®Ç°±£´æµÄIPµØÖ·ºÍÓòÃûget_previous_data() {  if [ -e "$NOW_IP_FILE" ]; then    cat "$NOW_IP_FILE"  else    echo "{}"  fi}# Ğ´ÈëJSONÎÄ¼şwrite_data() {  local ip="$1"  local domain="$2"  echo "{\"ip\":\"$ip\",\"domain\":\"$domain\"}" > "$NOW_IP_FILE"}# Ğ´ÈëÈÕÖ¾write_log() {  local log_message="$1"  echo "$log_message" >> "$LOG_FILE"  echo "$log_message"}# ÇåÀí¾ÉÈÕÖ¾£¬±£Áô×î½ü7Ììcleanup_old_logs() {  # »ñÈ¡µ±Ç°Ê±¼äµÄÊ±¼ä´Á  current_timestamp=$(date "+%s")  find "$LOG_DIR" -type f -name "${DOMAIN}_*" -exec basename {} \; | awk -F_ '{print $3}' | while read -r log_date; do    log_timestamp=$(date -d "$(echo "$log_date" | awk -F. '{print $1}' | awk -F- '{printf "%s-%s-%s", $1, $2, $3}')" "+%s" )    if [ -n "$log_timestamp" ]; then      # ¼ÆËã7ÌìÇ°µÄÊ±¼ä´Á      cutoff_timestamp=$((current_timestamp - $DAYS_TO_KEEP * 24 * 60 * 60))      if [ "$log_timestamp" -lt "$cutoff_timestamp" ]; then        rm -f "$LOG_DIR/${DOMAIN}_${log_date}"      fi    fi  done}# Ö´ĞĞÒ»´ÎÖ÷Òª¹¦ÄÜmain() {  create_log_directory  local IP=$(get_current_ip)  local PREVIOUS_DATA=$(get_previous_data)  local PREVIOUS_IP=$(echo "$PREVIOUS_DATA" | jq -r '.ip')  local PREVIOUS_DOMAIN=$(echo "$PREVIOUS_DATA" | jq -r '.domain')  #¼ì²éµ±Ç°IPµØÖ·ÊÇ·ñÓëÖ®Ç°µÄÏàÍ¬  if [ "$IP" == "$PREVIOUS_IP" ] && [ "$DOMAIN" == "$PREVIOUS_DOMAIN" ]; then    echo "µ±Ç°IPÓëÓòÃû½âÎöµØÖ·ÏàÍ¬, Ìø¹ıĞŞ¸Ä²Ù×÷."  else    create_log_file    DOMAIN_ID=$(get_domain_id)    # ¹¹½¨curlÃüÁî    local curl_command="curl -s --location --request PUT 'https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$DOMAIN_ID' \    --header 'X-Auth-Email: $EMAIL' \    --header 'Content-Type: application/json' \    --header 'Authorization: Bearer $TOKEN' \    --data-raw '{      \"content\": \"$IP\",      \"name\": \"$DOMAIN\",      \"proxied\": $CDN_PROXIED,      \"type\": \"$TYPE\",      \"comment\": \"$(date +"%Y-%m-%d %T %Z")\",      \"ttl\": 60    }'"    # Ö´ĞĞcurlÃüÁî£¬²¢½«½á¹û±£´æµ½±äÁ¿    local response=$(eval "$curl_command")    # ½âÎöJSONÊı¾İ    local success=$(echo "$response" | jq -r '.success')    # Ğ´ÈëÈÕÖ¾    local current_time=$(date +"%Y-%m-%d %T")    if [ "$success" == "true" ]; then      local log_message="[$current_time] ĞŞ¸Ä³É¹¦, IP: $IP"      write_log "$log_message"      # ±£´æµ±Ç°IPµØÖ·ºÍÓòÃûµ½JSONÎÄ¼ş      write_data "$IP" "$DOMAIN"    else      local errors=$(echo "$response" | jq -r '.errors[]')      local log_message="[$current_time] ĞŞ¸ÄÊ§°Ü, ´íÎó: $errors"      write_log "$log_message"    fi  fi  cleanup_old_logs  exit}main
+#!/bin/bash
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+#è¿›å…¥https://dash.cloudflare.com/profile/api-tokensè·å–
+#ï¼ˆå¡«çš„æ˜¯API Tokenï¼Œä¸­æ–‡å«APIä»¤ç‰Œï¼Œåˆ«å¡«ä¸‹é¢çš„Global API Keyï¼Œéœ€è¦æˆäºˆtoken DNSä¿®æ”¹æƒé™ã€ZONEå’ŒZone Settings è¯»æƒé™ï¼‰
+TOKEN="_DCkzF7UoHW0ERx3610ztqEhK7WvJ7H1c_8XXHwy"
+#ç™»å½•cloudflareçš„é‚®ç®±
+EMAIL="google@gmail.com"
+#åŒºåŸŸIDï¼ˆè¿›å…¥cloudflareï¼Œç‚¹å‡»å¯¹åº”åŸŸåï¼Œå†ç‚¹å‡»æ¦‚è¿°å³ä¸‹ä¾§è·å–ï¼‰
+ZONE_ID="be92f3a28586eb731ac7cd1568fb1609"
+#è¦è§£æçš„åŸŸåï¼ˆwww.google.com or google.comï¼‰
+DOMAIN="www.google.com"
+
+TYPE="AAAA"  # ipç±»å‹(A/AAAA)
+CDN_PROXIED=false  # æ˜¯å¦å¼€å¯å°é»„äº‘cdnåŠ é€Ÿ ï¼ˆfalse|å…³é—­ true|å¼€å¯ï¼‰
+LOG_DIR="$SCRIPT_DIR/$DOMAIN"  # æ—¥å¿—æ–‡ä»¶å­˜æ”¾ç›®å½•
+NOW_IP_FILE="$SCRIPT_DIR/$DOMAIN/$DOMAIN.json"  # åŸŸåè§£ææ•°æ®å­˜æ”¾ç›®å½•
+DAYS_TO_KEEP=7  # æ—¥å¿—ä¿å­˜å¤©æ•°
+
+# åˆ›å»ºæ—¥å¿—ç›®å½•
+create_log_directory() {
+  if [ ! -d "$LOG_DIR" ]; then
+    mkdir "$LOG_DIR"
+  fi
+}
+
+# åˆ›å»ºæ—¥å¿—æ–‡ä»¶
+create_log_file() {
+  local current_date=$(date +"%Y-%m-%d")
+  LOG_FILE="$LOG_DIR/${DOMAIN}_${current_date}.log"
+  touch "$LOG_FILE"
+}
+
+# è·å–å½“å‰IPåœ°å€
+get_current_ip() {
+  local ip_command=""
+  if [ "$TYPE" == "A" ]; then
+    ip_command="curl -s -4 https://ip.ddnspod.com/v4"
+  elif [ "$TYPE" == "AAAA" ]; then
+    ip_command="curl -s -6 https://ip.ddnspod.com/v6"
+  else
+    echo "æŒ‡å®šçš„ipç±»å‹æ— æ•ˆ. è¯·ä½¿ç”¨ 'A' æˆ–è€… 'AAAA'."
+    exit 1
+  fi
+
+  $ip_command
+}
+
+# è·å–åŸŸåid
+get_domain_id() {
+  local response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+    -H "X-Auth-Email:$EMAIL" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json")
+  local domain_id=$(echo "$response" | jq -r ".result[] | select(.name == \"$DOMAIN\" and .type == \"$TYPE\") | .id")
+  echo "$domain_id"
+}
+
+# ä»JSONæ–‡ä»¶ä¸­è¯»å–ä¹‹å‰ä¿å­˜çš„IPåœ°å€å’ŒåŸŸå
+get_previous_data() {
+  if [ -e "$NOW_IP_FILE" ]; then
+    cat "$NOW_IP_FILE"
+  else
+    echo "{}"
+  fi
+}
+
+# å†™å…¥JSONæ–‡ä»¶
+write_data() {
+  local ip="$1"
+  local domain="$2"
+  echo "{\"ip\":\"$ip\",\"domain\":\"$domain\"}" > "$NOW_IP_FILE"
+}
+
+# å†™å…¥æ—¥å¿—
+write_log() {
+  local log_message="$1"
+  echo "$log_message" >> "$LOG_FILE"
+  echo "$log_message"
+}
+
+# æ¸…ç†æ—§æ—¥å¿—ï¼Œä¿ç•™æœ€è¿‘7å¤©
+cleanup_old_logs() {
+  # è·å–å½“å‰æ—¶é—´çš„æ—¶é—´æˆ³
+  current_timestamp=$(date "+%s")
+
+  find "$LOG_DIR" -type f -name "${DOMAIN}_*" -exec basename {} \; | awk -F_ '{print $3}' | while read -r log_date; do
+    log_timestamp=$(date -d "$(echo "$log_date" | awk -F. '{print $1}' | awk -F- '{printf "%s-%s-%s", $1, $2, $3}')" "+%s" )
+    if [ -n "$log_timestamp" ]; then
+      # è®¡ç®—7å¤©å‰çš„æ—¶é—´æˆ³
+      cutoff_timestamp=$((current_timestamp - $DAYS_TO_KEEP * 24 * 60 * 60))
+      if [ "$log_timestamp" -lt "$cutoff_timestamp" ]; then
+        rm -f "$LOG_DIR/${DOMAIN}_${log_date}"
+      fi
+    fi
+  done
+}
+
+# æ‰§è¡Œä¸€æ¬¡ä¸»è¦åŠŸèƒ½
+main() {
+  create_log_directory
+
+  local IP=$(get_current_ip)
+  local PREVIOUS_DATA=$(get_previous_data)
+  local PREVIOUS_IP=$(echo "$PREVIOUS_DATA" | jq -r '.ip')
+  local PREVIOUS_DOMAIN=$(echo "$PREVIOUS_DATA" | jq -r '.domain')
+
+  #æ£€æŸ¥å½“å‰IPåœ°å€æ˜¯å¦ä¸ä¹‹å‰çš„ç›¸åŒ
+  if [ "$IP" == "$PREVIOUS_IP" ] && [ "$DOMAIN" == "$PREVIOUS_DOMAIN" ]; then
+    echo "å½“å‰IPä¸åŸŸåè§£æåœ°å€ç›¸åŒ, è·³è¿‡ä¿®æ”¹æ“ä½œ."
+  else
+    create_log_file
+    DOMAIN_ID=$(get_domain_id)
+    # æ„å»ºcurlå‘½ä»¤
+    local curl_command="curl -s --location --request PUT 'https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$DOMAIN_ID' \
+    --header 'X-Auth-Email: $EMAIL' \
+    --header 'Content-Type: application/json' \
+    --header 'Authorization: Bearer $TOKEN' \
+    --data-raw '{
+      \"content\": \"$IP\",
+      \"name\": \"$DOMAIN\",
+      \"proxied\": $CDN_PROXIED,
+      \"type\": \"$TYPE\",
+      \"comment\": \"$(date +"%Y-%m-%d %T %Z")\",
+      \"ttl\": 60
+    }'"
+
+    # æ‰§è¡Œcurlå‘½ä»¤ï¼Œå¹¶å°†ç»“æœä¿å­˜åˆ°å˜é‡
+    local response=$(eval "$curl_command")
+    # è§£æJSONæ•°æ®
+    local success=$(echo "$response" | jq -r '.success')
+
+    # å†™å…¥æ—¥å¿—
+    local current_time=$(date +"%Y-%m-%d %T")
+    if [ "$success" == "true" ]; then
+      local log_message="[$current_time] ä¿®æ”¹æˆåŠŸ, IP: $IP"
+      write_log "$log_message"
+      # ä¿å­˜å½“å‰IPåœ°å€å’ŒåŸŸååˆ°JSONæ–‡ä»¶
+      write_data "$IP" "$DOMAIN"
+    else
+      local errors=$(echo "$response" | jq -r '.errors[]')
+      local log_message="[$current_time] ä¿®æ”¹å¤±è´¥, é”™è¯¯: $errors"
+      write_log "$log_message"
+    fi
+  fi
+
+  cleanup_old_logs
+  exit
+}
+
+main
