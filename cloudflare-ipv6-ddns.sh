@@ -1,21 +1,27 @@
 #!/bin/bash
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# -------------------------------------------------------------------------------
+# 2023-12更新：同一个域名拥有多条解析ip的时候，更新修改时间最新的那条解析
+# -------------------------------------------------------------------------------
+# 进入https://dash.cloudflare.com/profile/api-tokens获取API Token
+#   填的是上面的API Token，别填下面的API Key，需要授予Token DNS修改权限、ZONE和Zone Settings 读权限
+# 进入cloudflare管理首页，点击对应域名，再点击概述右下侧获取区域ID
+# 获取自己的外网ip地址请详细查看https://www.ddnspod.com
+# -------------------------------------------------------------------------------
 
-#进入https://dash.cloudflare.com/profile/api-tokens获取
-#（填的是API Token，中文叫API令牌，别填下面的Global API Key，需要授予token DNS修改权限、ZONE和Zone Settings 读权限）
-TOKEN="_DCkzF7UoHW0ERx3610ztqEhK7WvJ7H1c_8XXHwy"
-#登录cloudflare的邮箱
-EMAIL="google@gmail.com"
-#区域ID（进入cloudflare，点击对应域名，再点击概述右下侧获取）
-ZONE_ID="be92f3a28586eb731ac7cd1568fb1609"
-#要解析的域名（www.google.com or google.com）
-DOMAIN="www.google.com"
-
+TOKEN="_DCkzF7UoHW0ERx3610ztqEhK7WvJ7H1c_8XXHwy"  # 填写API Token
+EMAIL="google@gmail.com"  # 登录cloudflare的邮箱
+ZONE_ID="be92f3a28586eb731ac7cd1568fb1609"  # 填写主域名的区域ID
+DOMAIN="www.google.com"  # 要解析的域名全拼（例如 www.google.com 或者 google.com）
 TYPE="AAAA"  # ip类型(A/AAAA)
 CDN_PROXIED=false  # 是否开启小黄云cdn加速 （false|关闭 true|开启）
-LOG_DIR="$SCRIPT_DIR/$DOMAIN"  # 日志文件存放目录
-NOW_IP_FILE="$SCRIPT_DIR/$DOMAIN/$DOMAIN.json"  # 域名解析数据存放目录
 DAYS_TO_KEEP=7  # 日志保存天数
+
+# 获取脚本所在目录
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# 日志文件存放目录
+LOG_DIR="$SCRIPT_DIR/$DOMAIN"
+# 域名解析数据存放目录
+NOW_IP_FILE="$SCRIPT_DIR/$DOMAIN/$DOMAIN.json"
 
 # 创建日志目录
 create_log_directory() {
@@ -42,7 +48,6 @@ get_current_ip() {
     echo "指定的ip类型无效. 请使用 'A' 或者 'AAAA'."
     exit 1
   fi
-
   $ip_command
 }
 
@@ -52,7 +57,7 @@ get_domain_id() {
     -H "X-Auth-Email:$EMAIL" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json")
-  local domain_id=$(echo "$response" | jq -r ".result[] | select(.name == \"$DOMAIN\" and .type == \"$TYPE\") | .id")
+  local domain_id=$(echo "$response" | jq -r ".result[] | select(.name == \"$DOMAIN\" and .type == \"$TYPE\") | .id" | head -n 1 )
   echo "$domain_id"
 }
 
@@ -79,7 +84,7 @@ write_log() {
   echo "$log_message"
 }
 
-# 清理旧日志，保留最近7天
+# 清理旧日志，保留最近N天
 cleanup_old_logs() {
   # 获取当前时间的时间戳
   current_timestamp=$(date "+%s")
@@ -87,7 +92,7 @@ cleanup_old_logs() {
   find "$LOG_DIR" -type f -name "${DOMAIN}_*" -exec basename {} \; | awk -F_ '{print $3}' | while read -r log_date; do
     log_timestamp=$(date -d "$(echo "$log_date" | awk -F. '{print $1}' | awk -F- '{printf "%s-%s-%s", $1, $2, $3}')" "+%s" )
     if [ -n "$log_timestamp" ]; then
-      # 计算7天前的时间戳
+      # 计算N天前的时间戳
       cutoff_timestamp=$((current_timestamp - $DAYS_TO_KEEP * 24 * 60 * 60))
       if [ "$log_timestamp" -lt "$cutoff_timestamp" ]; then
         rm -f "$LOG_DIR/${DOMAIN}_${log_date}"
